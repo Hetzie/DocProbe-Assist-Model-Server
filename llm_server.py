@@ -6,15 +6,15 @@ import time
 
 
 async def resolve_query(request):
-    data = await request.json()
+    data = await request.form()
     query = data.get("query", None)
     if query == None:
         return JSONResponse({'message': 'enter query'}, status_code=400)
     response_q = asyncio.Queue()
-    await app.model_queue.put(())
+    await app.model_queue.put((query, response_q))
     answer = await response_q.get()
 
-    return JSONResponse({'message': 'ok'})
+    return JSONResponse({'answer': answer})
 
 
 async def server_loop(q: asyncio.Queue):

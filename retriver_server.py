@@ -5,6 +5,7 @@ import asyncio
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain.prompts import PromptTemplate
+import os
 
 
 async def retrive_relevent_doc(request):
@@ -13,9 +14,9 @@ async def retrive_relevent_doc(request):
     query = a.get('query')
     response_q = asyncio.Queue()
     await request.app.model_queue.put((query, name, response_q))
-    output = await response_q.get()
+    (context, reference) = await response_q.get()
 
-    return JSONResponse({'context': output})
+    return JSONResponse({'context': context, 'reference': reference})
 
 
 async def server_loop(q):
@@ -59,10 +60,15 @@ async def server_loop(q):
             retriever = vector_db.as_retriever(
                 search_type="mmr", search_kwargs={"k": 10})
         docs_result = await retriever.aget_relevant_documents(query)
-        docs_text = "\n".join([f"Page Number:{doc.metadata['page'] + 1}"
+        docs_result.sort(key=lambda x: (
+            x.metadata['name'], x.metadata['page']))
+        docs_text = "\n".join([f"Document Name:{doc.metadata['name']}"
+                               f"\nPage Number:{doc.metadata['page'] + 1}"
                                f"\nContent:{doc.page_content}" for doc in docs_result])
+        reference = [{'docName': doc.metadata['name'], 'pageNumber': doc.metadata['page'] + 1, 'url': doc.metadata['source'].replace(os.sep, '/')}
+                     for doc in docs_result]
         context = prompt.format(question=query, context=docs_text)
-        await response_q.put(context)
+        await response_q.put((context, reference))
 
 
 app = Starlette(
