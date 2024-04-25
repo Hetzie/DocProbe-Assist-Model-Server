@@ -30,6 +30,7 @@ async def server_loop(q):
         model_name=model_name,
         model_kwargs=model_kwargs,
         encode_kwargs=encode_kwargs,
+        cache_folder="embeddings/cache"
     )
 
     persist_directory = "thermal"
