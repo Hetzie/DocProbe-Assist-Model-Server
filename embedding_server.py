@@ -31,7 +31,8 @@ async def embedd_doc(request):
     response_q = asyncio.Queue()
     await request.app.model_queue.put((path, source, name, 'embedd', response_q))
     task = await response_q.get()
-
+    requests.post(
+        'http://127.0.0.1:8000/api/chatbot/embedding-status-change/', data=({'name': name, 'status': 'PROCESSING'}))
     return JSONResponse({'message': 'added to queue'}, background=task)
 
 
@@ -78,9 +79,8 @@ async def server_loop(q):
 async def add_doc_to_vectorDB(path, source, name, vector_db):
     await vector_db.aadd_documents(await embedd_documents(path, source, name))
     vector_db.persist()
-    r = requests.post(
-        'http://127.0.0.1:8000/chatbot/embedding-complete/', data=({'name': name}))
-    print(r.text)
+    requests.post(
+        'http://127.0.0.1:8000/api/chatbot/embedding-status-change/', data=({'name': name, 'status': 'COMPLETED'}))
     Path(path).unlink(missing_ok=True)
 
 
@@ -106,6 +106,7 @@ async def startup_event():
 
 async def embedd_documents(file_path, source, name):
 
+    print('Loading document...')
     file_loader = PyPDFLoader(file_path)
     documents = await file_loader.aload()
 
@@ -117,6 +118,7 @@ async def embedd_documents(file_path, source, name):
     texts = text_splitter.split_documents(documents)
     doc_list = []
 
+    print('Extraction tables...')
     doc_list.extend(await give_prompt_from_document(file_path=file_path))
 
     texts.extend(doc_list[0])
@@ -124,6 +126,8 @@ async def embedd_documents(file_path, source, name):
     for text in texts:
         text.metadata = {
             'page': text.metadata['page'], 'source': source, 'name': name}
+
+    print('Embedding Documents...')
     return texts
 
     # api call to django server
@@ -161,7 +165,7 @@ async def extract_dataframe_list(file_path, temp_dir):
                         for j in range(len(ls)):
                             page.append(i+1)
                     except:
-                        print('-', end='')
+                        pass
                 for filename in os.listdir(temp_dir):
                     if os.path.isfile(os.path.join(temp_dir, filename)):
                         os.remove(os.path.join(temp_dir, filename))
@@ -237,9 +241,7 @@ async def filter_table(df_list, page):
     # filter individual table
     filtered_pages = []
     clean_tables = []
-    print()
     for i, df in enumerate(df_list):
-        print('*', end='')
         await merge_same_column(df)
 
         total_row = df.shape[0]
