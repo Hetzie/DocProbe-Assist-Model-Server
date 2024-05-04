@@ -2,10 +2,11 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 import asyncio
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores.chroma import Chroma
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain.prompts import PromptTemplate
 import os
+from chromadb import HttpClient
 
 
 async def retrive_relevent_doc(request):
@@ -34,7 +35,8 @@ async def server_loop(q):
     )
 
     persist_directory = "thermal"
-    vector_db = Chroma(persist_directory=persist_directory,
+    client = HttpClient(host='localhost', port=1237)
+    vector_db = Chroma(client=client,
                        embedding_function=bge_embeddings)
 
     template = '''A chat between a curious user and an artificial intelligence assistant.
