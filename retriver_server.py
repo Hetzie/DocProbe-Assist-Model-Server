@@ -13,8 +13,9 @@ async def retrive_relevent_doc(request):
     a = await request.form()
     name = a.get('name')
     query = a.get('query')
+    dir = a.get('directory')
     response_q = asyncio.Queue()
-    await request.app.model_queue.put((query, name, response_q))
+    await request.app.model_queue.put((query, name, dir, response_q))
     (context, reference) = await response_q.get()
 
     return JSONResponse({'context': context, 'reference': reference})
@@ -55,10 +56,13 @@ async def server_loop(q):
         input_variables=["context", "question"], template=template)
 
     while True:
-        (query, name, response_q) = await q.get()
+        (query, name, dir, response_q) = await q.get()
         if name != None:
             retriever = vector_db.as_retriever(search_type="mmr", search_kwargs={
                                                "k": 10, 'filter': {'name': name}})
+        elif dir != None:
+            retriever = vector_db.as_retriever(search_type="mmr", search_kwargs={
+                                               "k": 10, 'filter': {'directory': dir}})
         else:
             retriever = vector_db.as_retriever(
                 search_type="mmr", search_kwargs={"k": 10})

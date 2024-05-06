@@ -2,7 +2,7 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 import asyncio
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores.chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
@@ -16,6 +16,7 @@ from langchain_community.docstore.document import Document
 from starlette.background import BackgroundTask
 from pathlib import Path
 import requests
+from chromadb import HttpClient
 
 
 async def embedd_doc(request):
@@ -24,12 +25,13 @@ async def embedd_doc(request):
     path = f'./doc/{a["file"].filename}'
     source = a['source']
     content = await a['file'].read()
+    dir = a.get('directory')
     # await a['file'].write(content)
     fs = open(path, 'wb')
     fs.write(content)
     fs.close()
     response_q = asyncio.Queue()
-    await request.app.model_queue.put((path, source, name, 'embedd', response_q))
+    await request.app.model_queue.put((path, source, name, dir, 'embedd', response_q))
     task = await response_q.get()
     requests.post(
         'http://127.0.0.1:8000/api/chatbot/embedding-status-change/', data=({'name': name, 'status': 'PROCESSING'}))
@@ -40,7 +42,7 @@ async def delete_doc(request):
     a = await request.form()
     name = a['name']
     response_q = asyncio.Queue()
-    await request.app.model_queue.put(('', '', name, 'delete', response_q))
+    await request.app.model_queue.put(('', '', name, '', 'delete', response_q))
 
     task = await response_q.get()
     return JSONResponse({'message': 'added to queue'}, background=task)
@@ -61,15 +63,16 @@ async def server_loop(q):
     )
 
     persist_directory = "thermal"
-    vector_db = Chroma(persist_directory=persist_directory,
+    client = HttpClient(host='localhost', port=1237)
+    vector_db = Chroma(client=client,
                        embedding_function=bge_embeddings)
 
     while True:
-        (path, source, name, function, response_q) = await q.get()
+        (path, source, name, dir, function, response_q) = await q.get()
         if function == 'embedd':
 
             task = BackgroundTask(add_doc_to_vectorDB, path=path, source=source,
-                                  name=name, vector_db=vector_db)
+                                  name=name, dir=dir, vector_db=vector_db)
             await response_q.put(task)
         elif function == 'delete':
             task = BackgroundTask(remove_doc_from_vectorDB,
@@ -77,8 +80,8 @@ async def server_loop(q):
             await response_q.put(task)
 
 
-async def add_doc_to_vectorDB(path, source, name, vector_db):
-    await vector_db.aadd_documents(await embedd_documents(path, source, name))
+async def add_doc_to_vectorDB(path, source, name, dir, vector_db):
+    await vector_db.aadd_documents(await embedd_documents(path, source, name, dir))
     vector_db.persist()
     requests.post(
         'http://127.0.0.1:8000/api/chatbot/embedding-status-change/', data=({'name': name, 'status': 'COMPLETED'}))
@@ -105,7 +108,7 @@ async def startup_event():
     asyncio.create_task(server_loop(q))
 
 
-async def embedd_documents(file_path, source, name):
+async def embedd_documents(file_path, source, name, dir):
 
     print('Loading document...')
     file_loader = PyPDFLoader(file_path)
@@ -126,7 +129,7 @@ async def embedd_documents(file_path, source, name):
 
     for text in texts:
         text.metadata = {
-            'page': text.metadata['page'], 'source': source, 'name': name}
+            'page': text.metadata['page'], 'source': source, 'name': name, 'directory': dir}
 
     print('Embedding Documents...')
     return texts
