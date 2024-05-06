@@ -26,6 +26,8 @@ async def embedd_doc(request):
     source = a['source']
     content = await a['file'].read()
     dir = a.get('directory')
+    if (dir == None):
+        dir = 'other'
     # await a['file'].write(content)
     fs = open(path, 'wb')
     fs.write(content)
@@ -82,7 +84,6 @@ async def server_loop(q):
 
 async def add_doc_to_vectorDB(path, source, name, dir, vector_db):
     await vector_db.aadd_documents(await embedd_documents(path, source, name, dir))
-    vector_db.persist()
     requests.post(
         'http://127.0.0.1:8000/api/chatbot/embedding-status-change/', data=({'name': name, 'status': 'COMPLETED'}))
     Path(path).unlink(missing_ok=True)
